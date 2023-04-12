@@ -21,7 +21,9 @@ def batch_process(year, index, batch_size):
     for ii in np.arange(0, n, batch_size):
         # batch is subset of index
         batch = index[ii:ii+batch_size]
+        print('*'*100)
         print(f'running batch: {batch[0]}-{batch[-1]}')
+        print('*'*100)
         
         # get data for batch
         data = get_data(year, batch)
@@ -52,6 +54,37 @@ def tweak_record(dd):
                 .strip() if dd['description'] is not None else np.nan,
             'date' : dd['date'].replace('T', ' ')  if dd['date'] is not None else np.nan,}
 
+def fetch(url, year, page):
+    attempt = 0
+    while attempt < 6:
+        try:
+            response = requests.get(url, params={'year':int(year), 'page':int(page)})
+            
+            if int(response.headers.get('X-RateLimit-Remaining')) < 2:
+                time.sleep(8)
+                
+            page_ = response.json()['page']
+            data_ = response.json()['data']
+            
+            data_ = [tweak_record(dd) for dd in data_]
+            
+            print('-'*100)
+            print('Parsing page: ', page_)
+            print('Response Status: ', response.status_code)
+            print('Rate Limit Remaining: ', response.headers.get('X-RateLimit-Remaining'))
+            
+            return data_
+        
+        except Exception as e:
+            print('-'*100)
+            print('**Call crashed**')
+            print(f'An error ocurred: {e}')
+            print('**Call crashed**')
+            
+            attempt += 1
+            time.sleep(20 - attempt)
+            
+
 
 def get_data(year, index):
     """
@@ -70,41 +103,12 @@ def get_data(year, index):
     url = 'https://datosabiertos.compraspublicas.gob.ec/PLATAFORMA/api/search_ocds'
     
     for page in index:
-        try:
-            response = requests.get(url, params={'year':int(year), 'page':int(page)})
-            
-            if int(response.headers.get('X-RateLimit-Remaining')) < 2 | response.status_code == 429:
-                time.sleep(8)
-                
-            if response.status_code == 200:
-                page_ = response.json()['page']
-                data_ = response.json()['data']
-            else:
-                page_ = None
-                data_ = None
-            
-            
-            data_ = [tweak_record(dd) for dd in data_]
-            
-            print('-'*100)
-            print('Parsing page: ', page_)
-            print('Response Status: ', response.status_code)
-            print('Rate Limit Remaining: ', response.headers.get('X-RateLimit-Remaining'))
-            print('Current Data Array Length: ', len(data))
-            
-            data.extend(data_)
-            
-        except Exception as e:
-            print('-'*100)
-            print('**Call crashed**')
-            print(f'An error ocurred: {e}')
-            print('Parsing page: ', page_)
-            print('Response Status: ', response.status_code)
-            print('Rate Limit Remaining: ', response.headers.get('X-RateLimit-Remaining'))
-            print('Current Data Array Length: ', len(data))
-            print('**Call crashed**')
+        data_ = fetch(url, year, page)
+        data.extend(data_)
+    
+    return data
 
-    return data 
+
 
 
 def write_data(data, write_header=False):
@@ -114,7 +118,7 @@ def write_data(data, write_header=False):
     # select keys as column names
     cols = data[0].keys()
 
-    with open('../data/contratacion_db.csv', 'a', newline='', encoding='utf-8') as f:
+    with open('../data/contratacion_seq_db.csv', 'a', newline='', encoding='utf-8') as f:
         writer = csv.DictWriter(f, fieldnames=cols)
         
         # if write_header is set to True, write headers.
@@ -126,13 +130,14 @@ def write_data(data, write_header=False):
         
         
 if __name__ == '__main__':
-    year = int(sys.argv[1])  
-    batch_size = int(sys.argv[2])
-    num_pages = int(sys.argv[3])
+    year = int(sys.argv[1])
+    start = int(sys.argv[2])
+    end = int(sys.argv[3])
+    batch_size = int(sys.argv[4])
 
-    index=np.arange(1, num_pages + 1, 1)
+    index=np.arange(start, end + 1, 1)
     
-    print(f'\n1#. Year selected: {year}\n2#. Number of Pages: {num_pages}\n3#. Size of Individual Batch: {batch_size}')
+    print(f'\n1#. Year selected: {year}\n2#. Page From {start} to {end}\n3#. Size of Individual Batch: {batch_size}')
     
     # log beginning time
     print(f'Began at {time.strftime("%H:%M:%S")}\n')
@@ -142,8 +147,3 @@ if __name__ == '__main__':
     print(f'\nFinished at {time.strftime("%H-%M-%S")}')
     end = time.time()
     print(f'Execution runtime: {end - start:.2f} seconds')
-
-
-    
-
-# @investigate why no file is being written
